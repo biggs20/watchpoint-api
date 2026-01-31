@@ -1,7 +1,15 @@
-const jwt = require('jsonwebtoken');
-const { query } = require('../config/database');
+const { createClient } = require('@supabase/supabase-js');
 
-// JWT Authentication Middleware
+// Initialize Supabase client with service role for server-side operations
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/**
+ * Authentication middleware using Supabase Auth
+ * Extracts Bearer token from Authorization header and verifies via Supabase
+ */
 const authenticate = async (req, res, next) => {
   try {
     // Get token from Authorization header
@@ -16,115 +24,57 @@ const authenticate = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
 
-    // Verify JWT token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      if (jwtError.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          error: 'Token Expired',
-          message: 'Your session has expired. Please log in again.',
-        });
-      }
-      if (jwtError.name === 'JsonWebTokenError') {
-        return res.status(401).json({
-          error: 'Invalid Token',
-          message: 'Token is malformed or invalid.',
-        });
-      }
-      throw jwtError;
-    }
-
-    // Fetch user from database to ensure they still exist and are active
-    const result = await query(
-      'SELECT id, email, subscription_tier, subscription_status, created_at FROM users WHERE id = $1',
-      [decoded.userId]
-    );
-
-    if (result.rows.length === 0) {
+    // Verify JWT using Supabase
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
       return res.status(401).json({
-        error: 'User Not Found',
-        message: 'User associated with this token no longer exists.',
+        error: 'Unauthorized',
+        message: error?.message || 'Invalid or expired token. Please log in again.',
       });
     }
 
-    const user = result.rows[0];
-
-    // Check if user account is active (not suspended/deleted)
-    if (user.subscription_status === 'suspended') {
-      return res.status(403).json({
-        error: 'Account Suspended',
-        message: 'Your account has been suspended. Please contact support.',
-      });
-    }
-
-    // Attach user to request object for use in route handlers
+    // Set user on request
     req.user = {
       id: user.id,
-      email: user.email,
-      subscriptionTier: user.subscription_tier,
-      subscriptionStatus: user.subscription_status,
-      createdAt: user.created_at,
+      email: user.email
     };
 
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('Auth middleware error:', error);
     return res.status(500).json({
-      error: 'Authentication Error',
-      message: 'An error occurred while authenticating your request.',
+      error: 'Internal Server Error',
+      message: 'An error occurred during authentication.',
     });
   }
 };
 
-// Optional authentication - doesn't fail if no token, just doesn't set req.user
+/**
+ * Optional authentication - doesn't fail if no token, but sets user if valid
+ */
 const optionalAuth = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(); // Continue without authentication
-  }
-
-  // If token is provided, validate it
-  return authenticate(req, res, next);
-};
-
-// Generate JWT token for user
-const generateToken = (userId, email) => {
-  return jwt.sign(
-    { userId, email },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-};
-
-// Generate refresh token with longer expiry
-const generateRefreshToken = (userId) => {
-  return jwt.sign(
-    { userId, type: 'refresh' },
-    process.env.JWT_SECRET,
-    { expiresIn: '30d' }
-  );
-};
-
-// Verify refresh token
-const verifyRefreshToken = (token) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.type !== 'refresh') {
-      return { valid: false, error: 'Invalid token type' };
+    const authHeader = req.headers.authorization;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      
+      if (!error && user) {
+        req.user = {
+          id: user.id,
+          email: user.email
+        };
+      }
     }
-    return { valid: true, userId: decoded.userId };
+    
+    next();
   } catch (error) {
-    return { valid: false, error: error.message };
+    // Don't fail for optional auth
+    next();
   }
 };
 
-module.exports = {
-  authenticate,
-  optionalAuth,
-  generateToken,
-  generateRefreshToken,
-  verifyRefreshToken,
-};
+// Export Supabase client for use in routes
+module.exports = { authenticate, optionalAuth, supabase };
