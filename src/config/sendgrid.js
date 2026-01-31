@@ -1,41 +1,72 @@
+/**
+ * SendGrid Configuration
+ * Gracefully handles missing or invalid API key
+ */
+
 const sgMail = require('@sendgrid/mail');
 
-// Initialize SendGrid client
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// Configuration state
+let isConfigured = false;
+let sgClient = null;
 
-// Send email helper function
-const sendEmail = async ({ to, subject, text, html }) => {
-  const msg = {
-    to,
-    from: process.env.FROM_EMAIL,
-    subject,
-    text,
-    html: html || text,
-  };
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'alerts@watchpoint.io';
+
+/**
+ * Initialize SendGrid client
+ * Returns false if key is missing/invalid - does NOT throw
+ */
+const initSendGrid = () => {
+  // Check if API key is set and not a placeholder
+  if (!SENDGRID_API_KEY || 
+      SENDGRID_API_KEY === '' || 
+      SENDGRID_API_KEY === 'placeholder' ||
+      SENDGRID_API_KEY.length < 20) {
+    console.warn('SendGrid not configured - SENDGRID_API_KEY missing or invalid');
+    isConfigured = false;
+    return false;
+  }
 
   try {
-    await sgMail.send(msg);
-    console.log(`📧 Email sent to ${to}`);
-    return { success: true };
+    sgMail.setApiKey(SENDGRID_API_KEY);
+    sgClient = sgMail;
+    isConfigured = true;
+    console.log('SendGrid initialized successfully');
+    return true;
   } catch (error) {
-    console.error('❌ SendGrid error:', error.response?.body || error.message);
-    return { success: false, error: error.message };
+    console.warn('SendGrid initialization failed:', error.message);
+    isConfigured = false;
+    return false;
   }
 };
 
-// Send bulk emails
-const sendBulkEmail = async (messages) => {
-  try {
-    await sgMail.send(messages);
-    console.log(`📧 Bulk email sent: ${messages.length} messages`);
-    return { success: true };
-  } catch (error) {
-    console.error('❌ SendGrid bulk error:', error.response?.body || error.message);
-    return { success: false, error: error.message };
-  }
+// Initialize on module load
+initSendGrid();
+
+/**
+ * Get the SendGrid client (or null if not configured)
+ */
+const getClient = () => {
+  return isConfigured ? sgClient : null;
+};
+
+/**
+ * Check if SendGrid is properly configured
+ */
+const isSendGridConfigured = () => {
+  return isConfigured;
+};
+
+/**
+ * Get the from email address
+ */
+const getFromEmail = () => {
+  return FROM_EMAIL;
 };
 
 module.exports = {
-  sendEmail,
-  sendBulkEmail,
+  getClient,
+  isConfigured: isSendGridConfigured,
+  getFromEmail,
+  initSendGrid,
 };
