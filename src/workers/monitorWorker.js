@@ -13,6 +13,11 @@ const { summarizeChange } = require('../utils/changeSummary');
 // Import Supabase client
 const { createClient } = require('@supabase/supabase-js');
 
+
+// Import notify queue for enqueueing notifications
+const { Queue } = require('bullmq');
+const notifyQueue = new Queue('notify', { connection: redis });
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -227,6 +232,15 @@ const processJob = async (job) => {
   });
   
   console.log(`[Monitor] Change recorded: ${changeRecord.id} - "${summary}"`);
+
+  // Enqueue notification job
+  await notifyQueue.add('notify-change', { change_id: changeRecord.id }, {
+    jobId: `change-${changeRecord.id}`,
+    removeOnComplete: true,
+    removeOnFail: 100,
+  });
+  console.log(`[Monitor] Enqueued notification for change_id: ${changeRecord.id}`);
+
   
   await updateWatchSchedule(watchId);
   
