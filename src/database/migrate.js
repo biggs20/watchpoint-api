@@ -6,16 +6,15 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-const createTables = async () => {
+async function migrate() {
   const client = await pool.connect();
   
   try {
-    console.log('🚀 Starting database migration...');
+    console.log('Starting database migration...');
     
-    // Begin transaction
-    await client.query('BEGIN');
-
-    // TABLE: users
+    // Create tables in order (respecting foreign key dependencies)
+    
+    // 1. Users table
     console.log('Creating users table...');
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -36,8 +35,9 @@ const createTables = async () => {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    console.log('✓ Users table created');
 
-    // TABLE: watches
+    // 2. Watches table
     console.log('Creating watches table...');
     await client.query(`
       CREATE TABLE IF NOT EXISTS watches (
@@ -69,8 +69,9 @@ const createTables = async () => {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    console.log('✓ Watches table created');
 
-    // TABLE: snapshots
+    // 3. Snapshots table
     console.log('Creating snapshots table...');
     await client.query(`
       CREATE TABLE IF NOT EXISTS snapshots (
@@ -82,8 +83,9 @@ const createTables = async () => {
         captured_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    console.log('✓ Snapshots table created');
 
-    // TABLE: changes
+    // 4. Changes table
     console.log('Creating changes table...');
     await client.query(`
       CREATE TABLE IF NOT EXISTS changes (
@@ -101,8 +103,9 @@ const createTables = async () => {
         detected_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    console.log('✓ Changes table created');
 
-    // TABLE: notifications
+    // 5. Notifications table
     console.log('Creating notifications table...');
     await client.query(`
       CREATE TABLE IF NOT EXISTS notifications (
@@ -121,59 +124,61 @@ const createTables = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    console.log('✓ Notifications table created');
 
     // Create indexes
-    console.log('Creating indexes...');
+    console.log('\nCreating indexes...');
     
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_watches_next_check 
       ON watches(next_check_at) 
       WHERE status = 'active'
     `);
-    
+    console.log('✓ idx_watches_next_check created');
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_watches_user 
       ON watches(user_id)
     `);
-    
+    console.log('✓ idx_watches_user created');
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_snapshots_watch 
       ON snapshots(watch_id, captured_at DESC)
     `);
-    
+    console.log('✓ idx_snapshots_watch created');
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_changes_watch 
       ON changes(watch_id, detected_at DESC)
     `);
-    
+    console.log('✓ idx_changes_watch created');
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_changes_pending 
       ON changes(notification_status) 
       WHERE notification_status = 'pending'
     `);
-    
+    console.log('✓ idx_changes_pending created');
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_notifications_user 
       ON notifications(user_id, created_at DESC)
     `);
+    console.log('✓ idx_notifications_user created');
 
-    // Commit transaction
-    await client.query('COMMIT');
-    
-    console.log('✅ Migration completed successfully!');
-    console.log('Tables created: users, watches, snapshots, changes, notifications');
-    console.log('Indexes created: 6 indexes for optimized queries');
+    console.log('\n✅ Migration completed successfully!');
     
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ Migration failed:', error.message);
+    console.error('Migration failed:', error.message);
     throw error;
   } finally {
     client.release();
     await pool.end();
   }
-};
+}
 
-createTables()
-  .then(() => process.exit(0))
-  .catch(() => process.exit(1));
+migrate().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
