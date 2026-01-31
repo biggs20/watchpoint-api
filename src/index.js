@@ -7,7 +7,9 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const profileRoutes = require('./routes/profile');
 const watchesRoutes = require('./routes/watches');
+const changesRoutes = require('./routes/changes');
 const billingRoutes = require('./routes/billing');
 const webhooksRoutes = require('./routes/webhooks');
 const feedbackRoutes = require('./routes/feedback');
@@ -45,7 +47,9 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/me', profileRoutes);
 app.use('/api/watches', watchesRoutes);
+app.use('/api/changes', changesRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/feedback', feedbackRoutes);
@@ -66,16 +70,14 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`
-╔═══════════════════════════════════════════════════════╗
-║                                                       ║
-║   🚀 WatchPoint API Server                            ║
-║                                                       ║
-║   Environment: ${process.env.NODE_ENV || 'development'}
-║   Port: ${PORT}
-║   URL: http://localhost:${PORT}
-║                                                       ║
-╚═══════════════════════════════════════════════════════╝
-  `);
+╔════════════════════════════════════════════════════════════╗
+║                     WatchPoint API                         ║
+╠════════════════════════════════════════════════════════════╣
+║  Server running on port ${PORT}                              ║
+║  Environment: ${process.env.NODE_ENV || 'development'}                           ║
+║  Health check: http://localhost:${PORT}/health               ║
+╚════════════════════════════════════════════════════════════╝
+`);
 });
 
 module.exports = app;
