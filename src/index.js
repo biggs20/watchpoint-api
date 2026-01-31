@@ -20,14 +20,24 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
+// CORS configuration - allow dashboard to make authenticated requests
+const allowedOrigins = new Set([
+  "http://localhost:3001",
+  "http://localhost:3000",
+  "http://localhost:5173",
+  process.env.DASHBOARD_URL, // e.g. https://watchpoint-dashboard.vercel.app
+  process.env.APP_URL,       // backward compatibility
+].filter(Boolean));
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.APP_URL 
-    : ['http://localhost:3000', 'http://localhost:5173'],
+  origin: (origin, cb) => {
+    // Allow requests with no origin (curl, server-to-server)
+    if (!origin) return cb(null, true);
+    return allowedOrigins.has(origin) ? cb(null, true) : cb(new Error("CORS blocked"), false);
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 }));
 
 // Body parsing middleware
@@ -36,48 +46,37 @@ app.use('/api/webhooks', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
-  });
-});
-
-// API routes
+// API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/me', profileRoutes);
+app.use('/api/profile', profileRoutes);
 app.use('/api/watches', watchesRoutes);
 app.use('/api/changes', changesRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/webhooks', webhooksRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
-// 404 handler for unknown routes
-app.use((req, res, next) => {
-  res.status(404).json({ 
-    error: 'Not Found', 
-    message: `Route ${req.method} ${req.path} not found` 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'WatchPoint API',
+    version: '1.0.0',
+    documentation: '/api/docs'
   });
 });
 
-// Global error handler
+// Global error handler (must be last)
 app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                     WatchPoint API                         ║
-╠════════════════════════════════════════════════════════════╣
-║  Server running on port ${PORT}                              ║
-║  Environment: ${process.env.NODE_ENV || 'development'}                           ║
-║  Health check: http://localhost:${PORT}/health               ║
-╚════════════════════════════════════════════════════════════╝
-`);
+  console.log(`WatchPoint API server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 module.exports = app;
